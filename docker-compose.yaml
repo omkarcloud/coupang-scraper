@@ -1,0 +1,12 @@
+services:
+  coupang-scraper:
+    build: .
+    restart: unless-stopped
+    shm_size: "1gb"
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      # A STICKY residential proxy in South Korea: needed for product search,
+      # product details / reviews / questions, category pages and seller catalogues.
+      - COUPANG_PROXY=http://user:pass@host:port
