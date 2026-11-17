@@ -249,7 +249,7 @@ class ExitPool:
     With COUPANG_PROXY there is exactly one exit, so every slot is the same
     proxy and rotate() only relaunches Chrome on it."""
 
-    def __init__(self, site, mint, size=1):
+    def __init__(self, site, mint, size=1, **kwargs):
         self.site = site
         self._mint = mint
         self._size = size

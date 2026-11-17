@@ -51,6 +51,7 @@ Failure taxonomy (scraper_errors, mapped to HTTP by route_glue):
   CoupangNotFound       unknown product / store / page                     — never retried
 """
 import json
+import fastjson
 import os
 import sys
 import threading
@@ -65,6 +66,7 @@ import egress
 from scraper_errors import BadRequest, Blocked, NotFound, UpstreamError
 from coupang import parsers, refs
 from coupang.refs import SHOP, SITE
+from scraper_utils import retry, sessions as sessions_utils
 
 IMPERSONATE = "chrome"
 WWW_TIMEOUT = 30
@@ -130,26 +132,13 @@ def _session(kind):
 def _drop_session(kind):
     sessions = getattr(_local, "sessions", None) or {}
     sess = sessions.pop(kind, None)
-    if sess is not None:
-        try:
-            sess.close()
-        except Exception:
-            pass
+    sessions_utils.close_quietly(sess)
 
 
 def _retrying(fn, kind):
     """Run fn() under the shared retry policy (CoupangUpstreamError only;
     NotFound / BadRequest surface immediately)."""
-    last = None
-    for attempt in range(1, config.MAX_RETRIES + 1):
-        try:
-            return fn()
-        except CoupangUpstreamError as e:
-            last = e
-            _drop_session(kind)
-            if attempt < config.MAX_RETRIES:
-                time.sleep(config.RETRY_BACKOFF * attempt)
-    raise last
+    return retry.run(fn, config, CoupangUpstreamError, lambda e: _drop_session(kind))
 
 
 def _classify(resp, label):
@@ -168,7 +157,7 @@ def _classify(resp, label):
 
 def _json_or_raise(text, label):
     try:
-        return json.loads(text)
+        return fastjson.loads(text)
     except ValueError:
         raise CoupangBlocked(f"non-JSON answer on {label}: {text[:120]!r}")
 
@@ -292,7 +281,8 @@ def fetch_store_filter(vendor_id):
 # call that should land on that browser (browser_client.ExitPool), and a
 # refusal (403 / challenge page inside the browser) rotates the exit.
 
-_EXITS = browser_client.ExitPool(BOX_SITE, config.coupang_browser_proxy, size=lambda: config.COUPANG_BROWSER_SLOTS)
+_EXITS = browser_client.ExitPool(BOX_SITE, config.coupang_browser_proxy, size=lambda: config.COUPANG_BROWSER_SLOTS,
+                                 burst=True)
 
 
 def _box_call(label, refused=None, **kw):
@@ -353,7 +343,7 @@ def box_json(page_url, url, label, refused=None, method="GET", body=None):
     it a POST with a JSON content type."""
     def body_refused(res):
         try:
-            return refused(json.loads(res.get("body") or ""))
+            return refused(fastjson.loads(res.get("body") or ""))
         except ValueError:
             return None
     headers = {**BOX_JSON_HEADERS, PAGE_HEADER: page_url}
@@ -362,7 +352,7 @@ def box_json(page_url, url, label, refused=None, method="GET", body=None):
     res = _box_call(label, refused=body_refused if refused else None, url=url, method=method, headers=headers, body=body)
     body, _ = _box_status(res, label)
     try:
-        return json.loads(body)
+        return fastjson.loads(body)
     except ValueError:
         raise CoupangUpstreamError(f"non-JSON answer inside the box browser on {label}: {body[:120]!r}")
 

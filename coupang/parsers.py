@@ -31,10 +31,12 @@ numbers + `currency`, dates ISO, null for absent values. Nothing here
 raises on a partial payload."""
 import html as html_lib
 import json
+import fastjson
 import re
 from datetime import datetime, timedelta, timezone
 
 from coupang import refs
+from scraper_utils.values import first_int as _int
 
 CURRENCY = "KRW"
 THUMBNAIL_PREFIX = "https://thumbnail.coupangcdn.com/thumbnails/remote/320x320ex/image/"
@@ -86,11 +88,6 @@ def _num(value):
     except ValueError:
         return None
     return int(number) if number.is_integer() else number
-
-
-def _int(value):
-    number = _num(value)
-    return int(number) if isinstance(number, (int, float)) else None
 
 
 def _text(value):
@@ -186,7 +183,7 @@ def rsc_payload(page_html):
     parts = []
     for chunk in _RSC_RE.findall(page_html):
         try:
-            parts.append(json.loads('"' + chunk + '"'))
+            parts.append(fastjson.loads('"' + chunk + '"'))
         except ValueError:
             continue
     return "".join(parts)
@@ -240,7 +237,7 @@ def ld_json(page_html):
     out = []
     for raw in _LD_RE.findall(page_html or ""):
         try:
-            value = json.loads(raw)
+            value = fastjson.loads(raw)
         except ValueError:
             continue
         if isinstance(value, dict):
@@ -1083,7 +1080,7 @@ def nuxt_values(page_html, keys):
         raw = tail.group(1).replace("void 0", "null")
         raw = re.sub(r"(?<![0-9A-Za-z_$.])\.(\d)", r"0.\1", raw)       # JS ".9375" -> "0.9375"
         try:
-            args = json.loads("[" + raw + "]")
+            args = fastjson.loads("[" + raw + "]")
         except ValueError:
             args = []
     body_end = tail.start() if tail else len(page_html)
@@ -1094,7 +1091,7 @@ def nuxt_values(page_html, keys):
             token = match.group(1)
             value = None
             if token.startswith('"'):
-                value = json.loads(token)
+                value = fastjson.loads(token)
             elif re.match(r"^-?[0-9]", token):
                 value = _num(token)
             elif token in lookup:
